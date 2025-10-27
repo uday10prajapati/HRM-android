@@ -1,0 +1,43 @@
+<resources>
+    <string name="app_name">HRM</string>
+
+    <string name="payslip_title">Generate Payslip</string>
+    <string name="generate_payslip_button">Generate Payslip</string>
+    <string name="payslip_default_message">Please select a month and year to generate your payslip.</string>
+    <string name="download_as_pdf_button">Download as PDF</string>
+
+    <string-array name="user_types">
+        <item>Employee</item>
+        <item>Engineer</item>
+    </string-array>
+
+    <string-array name="task_statuses">
+        <item>Accepted</item>
+        <item>On my way</item>
+        <item>Work in Progress</item>
+        <item>Completed</item>
+        <item>Pending - Parts Required</item>
+    </string-array>
+
+    <string-array name="leave_types">
+        <item>Sick Leave</item>
+        <item>Casual Leave</item>
+        <item>Earned Leave</item>
+    </string-array>
+
+    <string-array name="months_array">
+        <item>January</item>
+        <item>February</item>
+        <item>March</item>
+        <item>April</item>
+        <item>May</item>
+        <item>June</item>
+        <item>July</item>
+        <item>August</item>
+        <item>September</item>
+        <item>October</item>
+        <item>November</item>
+        <item>December</item>
+    </string-array>
+
+</resources>
