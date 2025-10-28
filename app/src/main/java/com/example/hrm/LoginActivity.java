@@ -1,10 +1,12 @@
 package com.example.hrm;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.util.Patterns;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -29,14 +31,29 @@ public class LoginActivity extends AppCompatActivity {
     private final OkHttpClient client = new OkHttpClient();
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
+    // Constants for SharedPreferences
+    private static final String PREFS_NAME = "HRM_PREFS";
+    private static final String KEY_USER_ID = "USER_ID";
+    private static final String KEY_USER_TOKEN = "USER_TOKEN";
+    private static final String KEY_USER_ROLE = "USER_ROLE";
+    private static final String KEY_USER_EMAIL = "USER_EMAIL";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // **NEW**: Check for saved credentials first
+        if (isUserLoggedIn()) {
+            navigateToDashboard();
+            return; // Skip the rest of the login setup
+        }
+
         setContentView(R.layout.activity_login);
 
         email = findViewById(R.id.email);
         password = findViewById(R.id.password);
         Button loginButton = findViewById(R.id.loginButton);
+        TextView forgotPasswordTextView = findViewById(R.id.forgotPasswordTextView);
 
         loginButton.setOnClickListener(v -> {
             String emailText = email.getText().toString().trim();
@@ -53,6 +70,10 @@ public class LoginActivity extends AppCompatActivity {
             }
 
             loginUser(emailText, passwordText);
+        });
+
+        forgotPasswordTextView.setOnClickListener(v -> {
+            startActivity(new Intent(this, ForgotPasswordActivity.class));
         });
     }
 
@@ -105,35 +126,11 @@ public class LoginActivity extends AppCompatActivity {
                         userRole = userMetadata.optString("role", "").toLowerCase();
                     }
 
-                    if (userRole.isEmpty()) {
-                        runOnUiThread(() ->
-                                Toast.makeText(LoginActivity.this, "Login successful, but could not determine user role from metadata.", Toast.LENGTH_LONG).show()
-                        );
-                        return;
-                    }
+                    // **NEW**: Save credentials on successful login
+                    saveUserCredentials(userId, accessToken, userRole, email);
 
-                    final String finalRole = userRole;
-                    runOnUiThread(() -> {
-                        Intent intent;
-                        switch (finalRole) {
-                            case "engineer":
-                                intent = new Intent(LoginActivity.this, EngineerActivity.class);
-                                break;
-                            case "employee":
-                                intent = new Intent(LoginActivity.this, EmployeeActivity.class);
-                                break;
-                            default:
-                                Toast.makeText(LoginActivity.this, "Unknown user role: " + finalRole, Toast.LENGTH_LONG).show();
-                                return;
-                        }
-                        intent.putExtra("USER_EMAIL", email);
-                        intent.putExtra("USER_ID", userId);
-                        intent.putExtra("USER_TOKEN", accessToken);
-                        // **FIX**: Pass the entire user object to the next activity
-                        intent.putExtra("USER_OBJECT", user.toString());
-                        startActivity(intent);
-                        finish();
-                    });
+                    // Navigate to the correct dashboard
+                    navigateToDashboard();
 
                 } catch (JSONException e) {
                     runOnUiThread(() ->
@@ -142,5 +139,47 @@ public class LoginActivity extends AppCompatActivity {
                 }
             }
         });
+    }
+
+    private boolean isUserLoggedIn() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String token = prefs.getString(KEY_USER_TOKEN, null);
+        return token != null;
+    }
+
+    private void saveUserCredentials(String userId, String token, String role, String email) {
+        SharedPreferences.Editor editor = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit();
+        editor.putString(KEY_USER_ID, userId);
+        editor.putString(KEY_USER_TOKEN, token);
+        editor.putString(KEY_USER_ROLE, role);
+        editor.putString(KEY_USER_EMAIL, email);
+        editor.apply();
+    }
+
+    private void navigateToDashboard() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String role = prefs.getString(KEY_USER_ROLE, "");
+        Intent intent;
+
+        switch (role) {
+            case "engineer":
+                intent = new Intent(LoginActivity.this, EngineerActivity.class);
+                break;
+            case "employee":
+                intent = new Intent(LoginActivity.this, EmployeeActivity.class);
+                break;
+            default:
+                // If role is unknown or not set, force login
+                // This can also happen if navigating before credentials are saved
+                return; 
+        }
+
+        // Pass the saved data to the next activity
+        intent.putExtra("USER_ID", prefs.getString(KEY_USER_ID, ""));
+        intent.putExtra("USER_TOKEN", prefs.getString(KEY_USER_TOKEN, ""));
+        intent.putExtra("USER_EMAIL", prefs.getString(KEY_USER_EMAIL, ""));
+
+        startActivity(intent);
+        finish(); // Important: remove LoginActivity from the back stack
     }
 }

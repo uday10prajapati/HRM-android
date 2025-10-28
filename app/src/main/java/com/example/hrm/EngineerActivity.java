@@ -1,6 +1,7 @@
 package com.example.hrm;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.widget.Button;
 import android.widget.ImageView;
@@ -31,6 +32,9 @@ public class EngineerActivity extends AppCompatActivity {
     private TextView shiftDetailsTextView, shiftTitleTextView;
     private ImageView refreshShiftButton;
 
+    // Constants for SharedPreferences
+    private static final String PREFS_NAME = "HRM_PREFS";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -50,7 +54,6 @@ public class EngineerActivity extends AppCompatActivity {
         CardView attendanceCard = findViewById(R.id.attendanceCard);
         CardView stockCard = findViewById(R.id.stockCard);
         CardView leaveCard = findViewById(R.id.leaveCard);
-        CardView overtimeCard = findViewById(R.id.overtimeCard);
         Button logoutButton = findViewById(R.id.logoutButton);
 
         // Set click listeners for dashboard cards
@@ -90,14 +93,13 @@ public class EngineerActivity extends AppCompatActivity {
             startActivity(intent);
         });
 
-        overtimeCard.setOnClickListener(v -> {
-            Intent intent = new Intent(this, OvertimeActivity.class);
-            intent.putExtra("USER_ID", userId);
-            intent.putExtra("USER_TOKEN", userToken);
-            startActivity(intent);
-        });
-
         logoutButton.setOnClickListener(v -> {
+            // **NEW**: Clear saved credentials
+            SharedPreferences.Editor editor = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit();
+            editor.clear();
+            editor.apply();
+
+            // Navigate to Login screen
             Intent intent = new Intent(this, LoginActivity.class);
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             startActivity(intent);

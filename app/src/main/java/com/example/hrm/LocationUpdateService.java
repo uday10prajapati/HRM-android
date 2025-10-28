@@ -5,10 +5,14 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.location.Location;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
@@ -20,23 +24,35 @@ import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 
-import org.json.JSONException;
-import org.json.JSONObject;
-
-import java.io.IOException;
-
-import okhttp3.Call;
-import okhttp3.Callback;
-import okhttp3.Response;
+import java.util.ArrayList;
+import java.util.List;
 
 public class LocationUpdateService extends Service {
 
+    private static final String TAG = "LocationUpdateService";
     private FusedLocationProviderClient fusedLocationClient;
     private LocationCallback locationCallback;
-    private static final long UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+    // --- Filtering constants ---
+    private static final long UPDATE_INTERVAL = 1 * 60 * 1000; // 1 minute
+    private static final long FASTEST_INTERVAL = 30 * 1000;    // 30 seconds
+    private static final float MIN_DISTANCE_CHANGE_FOR_UPDATES = 10; // 10 meters
+    private static final long MIN_TIME_CHANGE_FOR_UPDATES = 1 * 60 * 1000; // 1 minute
+
     private static final String CHANNEL_ID = "LocationUpdateServiceChannel";
 
+    // **NEW**: Constants for SharedPreferences persistence
+    private static final String SERVICE_PREFS = "LocationServicePrefs";
+    private static final String KEY_USER_ID = "USER_ID";
+    private static final String KEY_USER_TOKEN = "USER_TOKEN";
+
     private String userId, userToken;
+    private final List<LocationPoint> locationPoints = new ArrayList<>();
+    private Location lastLocation;
+    private long lastLocationTimeMillis;
+
+    private Handler uploadHandler;
+    private Runnable periodicUploadTask;
 
     @Override
     public void onCreate() {
@@ -44,22 +60,56 @@ public class LocationUpdateService extends Service {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         createNotificationChannel();
 
+        // **NEW**: Restore credentials when service is created
+        restoreCredentials();
+
         locationCallback = new LocationCallback() {
             @Override
             public void onLocationResult(@NonNull LocationResult locationResult) {
                 super.onLocationResult(locationResult);
-                if (locationResult.getLastLocation() != null) {
-                    saveLocationToDatabase(locationResult.getLastLocation().getLatitude(), locationResult.getLastLocation().getLongitude());
+                Location currentLocation = locationResult.getLastLocation();
+                if (currentLocation != null) {
+                    if (shouldStoreLocation(currentLocation)) {
+                        lastLocation = currentLocation;
+                        lastLocationTimeMillis = System.currentTimeMillis();
+                        
+                        LocationPoint point = new LocationPoint(
+                                userId,
+                                currentLocation.getLatitude(),
+                                currentLocation.getLongitude()
+                        );
+                        locationPoints.add(point);
+                        Log.d(TAG, "New location added: " + point.getLatitude() + ", " + point.getLongitude());
+
+                        if (locationPoints.size() >= 5) {
+                            Log.d(TAG, "Auto-uploading 5 collected points...");
+                            uploadPointsSafely();
+                        }
+                    } else {
+                        Log.d(TAG, "Skipping save. Not enough time passed or distance moved.");
+                    }
                 }
             }
         };
+
+        uploadHandler = new Handler(Looper.getMainLooper());
+        periodicUploadTask = () -> {
+            if (!locationPoints.isEmpty()) {
+                Log.d(TAG, "Periodic upload triggered with " + locationPoints.size() + " points");
+                uploadPointsSafely();
+            }
+            uploadHandler.postDelayed(periodicUploadTask, 10 * 60 * 1000);
+        };
+        uploadHandler.postDelayed(periodicUploadTask, 10 * 60 * 1000);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null) {
+        if (intent != null && intent.hasExtra("USER_ID")) {
+            // **NEW**: Persist credentials every time the service is explicitly started
             userId = intent.getStringExtra("USER_ID");
             userToken = intent.getStringExtra("USER_TOKEN");
+            persistCredentials(userId, userToken);
         }
 
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
@@ -75,45 +125,77 @@ public class LocationUpdateService extends Service {
     }
 
     private void startLocationUpdates() {
-        LocationRequest locationRequest = LocationRequest.create();
+        LocationRequest locationRequest = new LocationRequest();
         locationRequest.setInterval(UPDATE_INTERVAL);
+        locationRequest.setFastestInterval(FASTEST_INTERVAL);
         locationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
 
-        if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "Location permission not granted, stopping service");
             stopSelf();
             return;
         }
+
         fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper());
     }
 
-    private void saveLocationToDatabase(double latitude, double longitude) {
-        if (userId == null || userToken == null) return;
-
-        JSONObject jsonBody = new JSONObject();
-        try {
-            jsonBody.put("user_id", userId);
-            jsonBody.put("latitude", latitude);
-            jsonBody.put("longitude", longitude);
-        } catch (JSONException e) {
-            e.printStackTrace();
+    private boolean shouldStoreLocation(Location location) {
+        if (lastLocation == null) {
+            return true; 
         }
+        float distance = location.distanceTo(lastLocation);
+        boolean movedEnough = distance >= MIN_DISTANCE_CHANGE_FOR_UPDATES;
+        long timeSinceLastSave = System.currentTimeMillis() - lastLocationTimeMillis;
+        boolean timePassedEnough = timeSinceLastSave >= MIN_TIME_CHANGE_FOR_UPDATES;
+        Log.d(TAG, "Distance: " + distance + "m, Time since last save: " + (timeSinceLastSave / 1000) + "s");
+        return movedEnough || timePassedEnough;
+    }
 
-        // Save to the new location_history table
-        SupabaseHelper.post("location_history", userToken, jsonBody, new Callback() {
-            @Override
-            public void onFailure(@NonNull Call call, @NonNull IOException e) { /* Fail silently */ }
+    private void uploadPointsSafely() {
+        if (userId == null || userToken == null || locationPoints.isEmpty()) {
+            Log.w(TAG, "No userId/token or no points to upload. Token: " + userToken);
+            return;
+        }
+        List<LocationPoint> uploadList = new ArrayList<>(locationPoints);
+        LocationUploader.uploadLocationData(
+                getApplicationContext(),
+                uploadList,
+                userId,
+                userToken
+        );
+        locationPoints.removeAll(uploadList);
+    }
 
-            @Override
-            public void onResponse(@NonNull Call call, @NonNull Response response) {
-                response.close();
-            }
-        });
+    // **NEW**: Methods to save and load credentials
+    private void persistCredentials(String userId, String userToken) {
+        SharedPreferences prefs = getSharedPreferences(SERVICE_PREFS, MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putString(KEY_USER_ID, userId);
+        editor.putString(KEY_USER_TOKEN, userToken);
+        editor.apply();
+        Log.d(TAG, "User credentials persisted for service.");
+    }
+
+    private void restoreCredentials() {
+        SharedPreferences prefs = getSharedPreferences(SERVICE_PREFS, MODE_PRIVATE);
+        userId = prefs.getString(KEY_USER_ID, null);
+        userToken = prefs.getString(KEY_USER_TOKEN, null);
+        if(userId != null) {
+            Log.d(TAG, "User credentials restored for service.");
+        }
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
         fusedLocationClient.removeLocationUpdates(locationCallback);
+        uploadHandler.removeCallbacks(periodicUploadTask);
+        Log.d(TAG, "Service destroyed, uploading remaining " + locationPoints.size() + " points");
+        uploadPointsSafely();
+
+        // **NEW**: Clear service-specific credentials on final destruction
+        getSharedPreferences(SERVICE_PREFS, MODE_PRIVATE).edit().clear().apply();
     }
 
     @Override
@@ -129,7 +211,9 @@ public class LocationUpdateService extends Service {
                     NotificationManager.IMPORTANCE_DEFAULT
             );
             NotificationManager manager = getSystemService(NotificationManager.class);
-            manager.createNotificationChannel(serviceChannel);
+            if (manager != null) {
+                manager.createNotificationChannel(serviceChannel);
+            }
         }
     }
 }

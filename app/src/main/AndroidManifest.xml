@@ -40,11 +40,11 @@
         <activity android:name=".PayslipActivity" />
         <activity android:name=".TasksActivity" />
         <activity android:name=".StockActivity" />
-        <activity android:name=".OvertimeActivity" />
         <activity android:name=".TaskDetailActivity" />
         <activity android:name=".AssignStockActivity" />
         <activity android:name=".ViewPayslipActivity" />
         <activity android:name=".MapViewActivity" />
+        <activity android:name=".ForgotPasswordActivity" />
 
         <service
             android:name=".LocationUpdateService"

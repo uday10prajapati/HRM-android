@@ -3,6 +3,7 @@ package com.example.hrm;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.MenuItem;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -28,6 +29,7 @@ public class TasksActivity extends AppCompatActivity implements TasksAdapter.OnI
     private RecyclerView tasksRecyclerView;
     private TasksAdapter adapter;
     private List<Task> taskList = new ArrayList<>();
+    private TextView pendingCallsTextView, resolvedCallsTextView;
 
     private String userId, userToken;
 
@@ -45,7 +47,10 @@ public class TasksActivity extends AppCompatActivity implements TasksAdapter.OnI
         userId = getIntent().getStringExtra("USER_ID");
         userToken = getIntent().getStringExtra("USER_TOKEN");
 
+        pendingCallsTextView = findViewById(R.id.pendingCallsTextView);
+        resolvedCallsTextView = findViewById(R.id.resolvedCallsTextView);
         tasksRecyclerView = findViewById(R.id.tasksRecyclerView);
+
         tasksRecyclerView.setLayoutManager(new LinearLayoutManager(this));
         adapter = new TasksAdapter(taskList, this);
         tasksRecyclerView.setAdapter(adapter);
@@ -79,9 +84,11 @@ public class TasksActivity extends AppCompatActivity implements TasksAdapter.OnI
                     final String responseBody = response.body().string();
                     JSONArray jsonArray = new JSONArray(responseBody);
                     taskList.clear();
+                    int pendingCalls = 0;
+                    int resolvedCalls = 0;
                     for (int i = 0; i < jsonArray.length(); i++) {
                         JSONObject taskObject = jsonArray.getJSONObject(i);
-                        taskList.add(new Task(
+                        Task task = new Task(
                                 taskObject.getInt("id"),
                                 taskObject.optString("user_id"),
                                 taskObject.optString("title"),
@@ -93,9 +100,21 @@ public class TasksActivity extends AppCompatActivity implements TasksAdapter.OnI
                                 taskObject.optString("customer_address"),
                                 taskObject.optString("customer_mobile"),
                                 taskObject.optString("due_date")
-                        ));
+                        );
+                        taskList.add(task);
+                        if ("pending".equalsIgnoreCase(task.getStatus())) {
+                            pendingCalls++;
+                        } else if ("resolved".equalsIgnoreCase(task.getStatus())) {
+                            resolvedCalls++;
+                        }
                     }
-                    runOnUiThread(() -> adapter.notifyDataSetChanged());
+                    int finalPendingCalls = pendingCalls;
+                    int finalResolvedCalls = resolvedCalls;
+                    runOnUiThread(() -> {
+                        adapter.notifyDataSetChanged();
+                        pendingCallsTextView.setText("Pending Calls: " + finalPendingCalls);
+                        resolvedCallsTextView.setText("Resolved Calls: " + finalResolvedCalls);
+                    });
                 } catch (JSONException e) {
                     runOnUiThread(() -> Toast.makeText(TasksActivity.this, "Error parsing tasks data.", Toast.LENGTH_SHORT).show());
                 }

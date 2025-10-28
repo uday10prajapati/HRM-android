@@ -2,7 +2,7 @@ package com.example.hrm;
 
 import android.graphics.Color;
 import android.os.Bundle;
-import android.view.MenuItem;
+import android.util.Log;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -15,7 +15,6 @@ import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.LatLngBounds;
-import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.PolylineOptions;
 
 import org.json.JSONArray;
@@ -32,8 +31,9 @@ import okhttp3.Response;
 
 public class MapViewActivity extends AppCompatActivity implements OnMapReadyCallback {
 
+    private static final String TAG = "MapViewActivity";
     private GoogleMap mMap;
-    private String userId, userToken, date;
+    private String userId, userToken;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -48,7 +48,6 @@ public class MapViewActivity extends AppCompatActivity implements OnMapReadyCall
 
         userId = getIntent().getStringExtra("USER_ID");
         userToken = getIntent().getStringExtra("USER_TOKEN");
-        date = getIntent().getStringExtra("DATE");
 
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
@@ -60,77 +59,80 @@ public class MapViewActivity extends AppCompatActivity implements OnMapReadyCall
     @Override
     public void onMapReady(@NonNull GoogleMap googleMap) {
         mMap = googleMap;
-        fetchLocationHistory();
+        if (userId != null && userToken != null) {
+            fetchLocationHistory();
+        } else {
+            Toast.makeText(this, "User ID or Token is missing", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void fetchLocationHistory() {
-        // The query needs to filter by both user_id and the specific date.
-        // The date format must match what is stored in your database.
-        String query = "user_id=eq." + userId + "&timestamp=gte." + date + "T00:00:00.000Z&timestamp=lt." + date + "T23:59:59.999Z&select=*";
-
-        SupabaseHelper.get("location_history", query, userToken, new Callback() {
+        // Fetch locations for a specific user, ordered by time
+        String query = "user_id=eq." + userId + "&select=*&order=updated_at.asc";
+        
+        SupabaseHelper.get("live_location", query, userToken, new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
-                runOnUiThread(() -> Toast.makeText(MapViewActivity.this, "Failed to fetch location history.", Toast.LENGTH_SHORT).show());
+                Log.e(TAG, "Failed to fetch location history", e);
+                runOnUiThread(() -> Toast.makeText(MapViewActivity.this, "Failed to load route", Toast.LENGTH_SHORT).show());
             }
 
             @Override
             public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
-                if (!response.isSuccessful()) {
-                    runOnUiThread(() -> Toast.makeText(MapViewActivity.this, "No location history found for this day.", Toast.LENGTH_SHORT).show());
+                if (!response.isSuccessful() || response.body() == null) {
+                    Log.e(TAG, "Failed response from Supabase: " + response.code());
                     return;
                 }
 
                 try {
-                    JSONArray jsonArray = new JSONArray(response.body().string());
-                    if (jsonArray.length() < 2) {
-                        runOnUiThread(() -> Toast.makeText(MapViewActivity.this, "Not enough data to draw a path.", Toast.LENGTH_SHORT).show());
-                        return;
-                    }
-
-                    List<LatLng> pathPoints = new ArrayList<>();
+                    String responseBody = response.body().string();
+                    JSONArray jsonArray = new JSONArray(responseBody);
+                    
+                    List<LatLng> routePoints = new ArrayList<>();
                     for (int i = 0; i < jsonArray.length(); i++) {
                         JSONObject point = jsonArray.getJSONObject(i);
-                        pathPoints.add(new LatLng(point.getDouble("latitude"), point.getDouble("longitude")));
+                        double lat = point.getDouble("latitude");
+                        double lng = point.getDouble("longitude");
+                        routePoints.add(new LatLng(lat, lng));
                     }
 
-                    runOnUiThread(() -> drawPathOnMap(pathPoints));
+                    if (!routePoints.isEmpty()) {
+                        runOnUiThread(() -> drawPolyline(routePoints));
+                    }
 
                 } catch (JSONException e) {
-                    runOnUiThread(() -> Toast.makeText(MapViewActivity.this, "Failed to parse location data.", Toast.LENGTH_SHORT).show());
+                    Log.e(TAG, "Error parsing location history", e);
                 }
             }
         });
     }
 
-    private void drawPathOnMap(List<LatLng> pathPoints) {
-        if (mMap == null || pathPoints.isEmpty()) return;
-
-        LatLng startPoint = pathPoints.get(0);
-        LatLng endPoint = pathPoints.get(pathPoints.size() - 1);
-
-        mMap.addMarker(new MarkerOptions().position(startPoint).title("Punch In"));
-        mMap.addMarker(new MarkerOptions().position(endPoint).title("Punch Out"));
+    private void drawPolyline(List<LatLng> routePoints) {
+        if (mMap == null || routePoints.size() < 2) {
+            return; // Not enough points to draw a line
+        }
 
         PolylineOptions polylineOptions = new PolylineOptions()
-                .addAll(pathPoints)
+                .addAll(routePoints)
                 .color(Color.BLUE)
                 .width(10);
+        
         mMap.addPolyline(polylineOptions);
 
+        // Create bounds that include all points of the route
         LatLngBounds.Builder builder = new LatLngBounds.Builder();
-        for (LatLng point : pathPoints) {
+        for (LatLng point : routePoints) {
             builder.include(point);
         }
-        mMap.moveCamera(CameraUpdateFactory.newLatLngBounds(builder.build(), 100));
+        LatLngBounds bounds = builder.build();
+
+        // Move the camera to show the entire route with some padding
+        mMap.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100));
     }
 
     @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        if (item.getItemId() == android.R.id.home) {
-            onBackPressed();
-            return true;
-        }
-        return super.onOptionsItemSelected(item);
+    public boolean onSupportNavigateUp() {
+        onBackPressed();
+        return true;
     }
 }
