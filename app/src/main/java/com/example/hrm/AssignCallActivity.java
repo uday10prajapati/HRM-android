@@ -3,7 +3,6 @@ package com.example.hrm;
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -28,12 +27,10 @@ public class AssignCallActivity extends AppCompatActivity implements AssignCallA
 
     private static final String TAG = "AssignCallActivity";
 
-    private RecyclerView pendingCallsRecyclerView, resolvedCallsRecyclerView;
-    private AssignCallAdapter pendingAdapter, resolvedAdapter;
-    private final List<AssignCall> pendingCalls = new ArrayList<>();
-    private final List<AssignCall> resolvedCalls = new ArrayList<>();
+    private RecyclerView assignCallRecyclerView;
+    private AssignCallAdapter assignCallAdapter;
+    private final List<AssignCall> assignCalls = new ArrayList<>();
 
-    private TextView pendingCountTextView, resolvedCountTextView;
     private String userToken;
 
     @Override
@@ -49,18 +46,10 @@ public class AssignCallActivity extends AppCompatActivity implements AssignCallA
 
         userToken = getIntent().getStringExtra("USER_TOKEN");
 
-        pendingCountTextView = findViewById(R.id.pendingCountTextView);
-        resolvedCountTextView = findViewById(R.id.resolvedCountTextView);
-
-        pendingCallsRecyclerView = findViewById(R.id.pendingCallsRecyclerView);
-        pendingCallsRecyclerView.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
-        pendingAdapter = new AssignCallAdapter(pendingCalls, this);
-        pendingCallsRecyclerView.setAdapter(pendingAdapter);
-
-        resolvedCallsRecyclerView = findViewById(R.id.resolvedCallsRecyclerView);
-        resolvedCallsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
-        resolvedAdapter = new AssignCallAdapter(resolvedCalls, this);
-        resolvedCallsRecyclerView.setAdapter(resolvedAdapter);
+        assignCallRecyclerView = findViewById(R.id.assignCallRecyclerView);
+        assignCallRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        assignCallAdapter = new AssignCallAdapter(assignCalls, this);
+        assignCallRecyclerView.setAdapter(assignCallAdapter);
     }
 
     @Override
@@ -70,7 +59,7 @@ public class AssignCallActivity extends AppCompatActivity implements AssignCallA
     }
 
     private void fetchAssignedCalls() {
-        String query = "role=ilike.engineer";
+        String query = "select=*"; // Fetch all calls
 
         SupabaseHelper.get("assign_call", query, userToken, new Callback() {
             @Override
@@ -92,14 +81,11 @@ public class AssignCallActivity extends AppCompatActivity implements AssignCallA
                     JSONArray jsonArray = new JSONArray(responseBody);
                     Log.d(TAG, "Fetched " + jsonArray.length() + " calls.");
 
-                    List<AssignCall> tempPending = new ArrayList<>();
-                    List<AssignCall> tempResolved = new ArrayList<>();
+                    List<AssignCall> tempCalls = new ArrayList<>();
 
                     for (int i = 0; i < jsonArray.length(); i++) {
                         JSONObject callObject = jsonArray.getJSONObject(i);
                         
-                        // **THE FIX**: Use 'optLong' and 'optString' for all fields to prevent crashes
-                        // if a value is missing or null in the database.
                         AssignCall assignCall = new AssignCall(
                                 callObject.optLong("call_id"),
                                 callObject.optString("id"),
@@ -112,24 +98,14 @@ public class AssignCallActivity extends AppCompatActivity implements AssignCallA
                                 callObject.optString("description"),
                                 callObject.optString("status")
                         );
+                        tempCalls.add(assignCall);
 
-                        if ("pending".equalsIgnoreCase(assignCall.getStatus())) {
-                            tempPending.add(assignCall);
-                        } else {
-                            tempResolved.add(assignCall);
-                        }
                     }
 
                     runOnUiThread(() -> {
-                        pendingCalls.clear();
-                        pendingCalls.addAll(tempPending);
-                        pendingAdapter.notifyDataSetChanged();
-                        pendingCountTextView.setText("(" + pendingCalls.size() + ")");
-
-                        resolvedCalls.clear();
-                        resolvedCalls.addAll(tempResolved);
-                        resolvedAdapter.notifyDataSetChanged();
-                        resolvedCountTextView.setText("(" + resolvedCalls.size() + ")");
+                        assignCalls.clear();
+                        assignCalls.addAll(tempCalls);
+                        assignCallAdapter.notifyDataSetChanged();
                     });
 
                 } catch (JSONException e) {
