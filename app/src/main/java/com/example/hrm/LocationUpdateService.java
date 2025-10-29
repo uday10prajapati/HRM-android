@@ -72,7 +72,7 @@ public class LocationUpdateService extends Service {
                     if (shouldStoreLocation(currentLocation)) {
                         lastLocation = currentLocation;
                         lastLocationTimeMillis = System.currentTimeMillis();
-                        
+
                         LocationPoint point = new LocationPoint(
                                 userId,
                                 currentLocation.getLatitude(),
@@ -142,7 +142,7 @@ public class LocationUpdateService extends Service {
 
     private boolean shouldStoreLocation(Location location) {
         if (lastLocation == null) {
-            return true; 
+            return true;
         }
         float distance = location.distanceTo(lastLocation);
         boolean movedEnough = distance >= MIN_DISTANCE_CHANGE_FOR_UPDATES;

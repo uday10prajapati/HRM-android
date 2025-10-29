@@ -54,6 +54,7 @@ public class EngineerActivity extends AppCompatActivity {
         CardView attendanceCard = findViewById(R.id.attendanceCard);
         CardView stockCard = findViewById(R.id.stockCard);
         CardView leaveCard = findViewById(R.id.leaveCard);
+        CardView assignCallCard = findViewById(R.id.assignCallCard);
         Button logoutButton = findViewById(R.id.logoutButton);
 
         // Set click listeners for dashboard cards
@@ -88,6 +89,13 @@ public class EngineerActivity extends AppCompatActivity {
 
         leaveCard.setOnClickListener(v -> {
             Intent intent = new Intent(this, LeaveActivity.class);
+            intent.putExtra("USER_ID", userId);
+            intent.putExtra("USER_TOKEN", userToken);
+            startActivity(intent);
+        });
+
+        assignCallCard.setOnClickListener(v -> {
+            Intent intent = new Intent(this, AssignCallActivity.class);
             intent.putExtra("USER_ID", userId);
             intent.putExtra("USER_TOKEN", userToken);
             startActivity(intent);
