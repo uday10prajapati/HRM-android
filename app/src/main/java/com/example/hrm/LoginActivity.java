@@ -89,6 +89,7 @@ public class LoginActivity extends AppCompatActivity {
                         String userId = userObject.optString("id", "");
                         String userRole = userObject.optString("role", "").toLowerCase();
                         String fullName = userObject.optString("name", "User");
+                        String userToken = userObject.optString("token", "");
 
                         if (!password.equals(storedPassword)) {
                             runOnUiThread(() ->
@@ -114,6 +115,7 @@ public class LoginActivity extends AppCompatActivity {
                             intent.putExtra("USER_ID", userId);
                             intent.putExtra("USER_EMAIL", email);
                             intent.putExtra("USER_NAME", fullName);
+                            intent.putExtra("USER_TOKEN", userToken);
 
                             Toast.makeText(LoginActivity.this, "Welcome " + fullName, Toast.LENGTH_SHORT).show();
                             startActivity(intent);
